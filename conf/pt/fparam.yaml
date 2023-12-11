@@ -1,0 +1,52 @@
+accelerator:
+  gradient_accumulation_steps: 4
+informer:
+  mode: pretrain
+  data:
+    wudao: "/root/autodl-tmp/project/Open-Llama/data/pretrain_data/part-*.jsonl.zst"
+  tokenzier:
+    path: "/root/autodl-tmp/project/LLMs/Bloom-560m"
+    special_tokens:
+      pad_token: "<|extra_0|>"
+      eos_token: "<|endoftext|>"
+  max_seq_length: 2000
+  batch_size: 8
+  num_workers: 8
+  prefetch_factor: 20
+modeller:
+  mode: fparameter
+  args:
+    ckpt: "/root/autodl-tmp/project/LLMs/Bloom-560m"
+    conf: "/root/autodl-tmp/project/LLMs/Bloom-560m"
+  gradient_checkpointing_enable: True
+  weight_decay: 1.0e-1
+trainer:
+  mode: pretrain
+  epochs: 2
+  lr: 2.0e-4
+  log_steps: 100
+  eval_steps: 10000
+  save_steps: 10000
+  warmup_steps: 1000
+  experiments:
+    exp_dir: "../experiments"
+    name: "exp_20231201"
+    weights: "weights"
+    conf: "conf"
+    load_model: False
+    load_step: 1000
+analyser:
+  tokenzier:
+    path: "/root/autodl-tmp/project/LLMs/Bloom-560m"
+    special_tokens:
+      pad_token: "<|extra_0|>"
+      eos_token: "<|endoftext|>"
+  task:
+    - function: loss
+      data:
+        wudao: ""
+        pubmed: ""
+    - function: select
+      data:
+        CMB: ""
+        C-eval: ""
