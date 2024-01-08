@@ -4,41 +4,41 @@ informer:
   mode: pretrain
   data:
     wudao: 
-      pattern: "/data/wudao/part-*.jsonl.zst"
-      ratio: 0.1
+      pattern: "/home/share/caoxu/projects/Open-Llama/data/wudao/part-*.jsonl.zst"
+      ratio: 0.0
     pubmedc: 
-      pattern: "/data/pubmedc/part-*.jsonl.zst"
-      ratio: 0.2
-    wiki: 
-      pattern: "/data/wiki/part-*.jsonl.zst"
+      pattern: "/home/share/caoxu/projects/Open-Llama/data/pubmedc/part-*.jsonl.zst"
+      ratio: 0.0
+    yidian: 
+      pattern: "/home/share/caoxu/projects/Open-Llama/data/yidian_cx/part-*.jsonl.zst"
       ratio: 0.1
   tokenzier:
-    path: "/root/autodl-tmp/project/LLMs/Bloom-560m"
+    path: "/home/data/LLMTrainer_bk/scripts/Qwen-7B"
     special_tokens:
       pad_token: "<|extra_0|>"
       eos_token: "<|endoftext|>"
-  max_seq_length: 2000
+  max_seq_length: 4096
   batch_size: 8
-  num_workers: 8
+  num_shards: 8
+  num_workers: 4
   prefetch_factor: 20
 modeller:
   mode: fromscratch
-  args: 
-    ckpt: "/root/autodl-tmp/project/LLMs/Bloom-560m"
-    conf: "/root/autodl-tmp/project/LLMs/Bloom-560m"
+  args:
+    ckpt: "/home/data/LLMTrainer_bk/scripts/Qwen-7B"
+    conf: "/home/data/LLMTrainer_bk/scripts/Qwen-7B"
   gradient_checkpointing_enable: True
   weight_decay: 1.0e-1
 trainer:
   mode: pretrain
-  epochs: 2
-  lr: 2.0e-4
-  log_steps: 100
-  eval_steps: 10000
-  save_steps: 10000
-  warmup_steps: 1000
+  epoch: 2
+  lr: 3.0e-6
+  log_steps: 10
+  save_steps: 10
+  warmup_steps: 100
   experiments:
     exp_dir: "../experiments"
-    name: "exp_20231201"
+    name: "exp_20240108"
     weights: "weights"
     conf: "conf"
     load_model: False

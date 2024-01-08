@@ -4,8 +4,11 @@ import time
 import torch
 import random
 import logging
+import deepspeed
 from deepspeed.ops.adam import FusedAdam
+from deepspeed.runtime.zero.partition_parameters import ZeroParamStatus
 from transformers import get_cosine_schedule_with_warmup
+from transformers.deepspeed import is_deepspeed_zero3_enabled
 
 class Trainer:
     """ Trainer """
@@ -119,7 +122,7 @@ class Trainer:
                     self.accelerator.wait_for_everyone()
                     unwrapped_model = self.accelerator.unwrap_model(self.model)
                     save_path = self.config["experiments"]["weights"] + "/{}".format(self.step)
-                    os.makedirs(save_path, exist_ok=True)
+                    save_weights(unwrapped_model, save_path, )
                     unwrapped_model.save_pretrained(save_path, 
                                                     is_main_process=self.accelerator.is_main_process,
                                                     save_function=self.accelerator.save,
@@ -151,3 +154,32 @@ class Trainer:
                 losses,
                 current_lr,
                 tokens / cost_time))            
+
+def _z3_params_to_fetch(param_list):
+    return [
+        p
+        for p in param_list
+        if hasattr(p, "ds_id") and p.ds_status == ZeroParamStatus.NOT_AVAILABLE
+    ]
+
+def save_weights(model, save_path, zero_stage_3=True):
+    """ save_weights """
+    os.makedirs(save_path, exist_ok=True)
+    WEIGHTS_NAME = "pytorch_model.bin"
+    output_model_file = os.path.join(save_path, WEIGHTS_NAME)
+    model_to_save = model.module if hasattr(model, 'module') else model
+    if not is_deepspeed_zero3_enabled():
+        torch.save(model_to_save.state_dict(), output_model_file)
+    else:
+        output_state_dict = {}
+        for k, v in model_to_save.named_parameters():
+            if hasattr(v, 'ds_id'):
+                with deepspeed.zero.GatheredParameters(_z3_params_to_fetch([v]), enabled=zero_stage_3):
+                    v_p = v.data.cpu()
+            else:
+                v_p = v.cpu()
+            output_state_dict[k] = v_p
+            torch.save(output_state_dict, output_model_file)
+        del output_state_dict
+
+
