@@ -19,7 +19,8 @@ informer:
       eos_token: "<|endoftext|>"
   max_seq_length: 2000
   batch_size: 8
-  num_workers: 8
+  num_shards: 8
+  num_workers: 4
   prefetch_factor: 20
 modeller:
   mode: fparameter
@@ -30,7 +31,7 @@ modeller:
   weight_decay: 1.0e-1
 trainer:
   mode: pretrain
-  epochs: 2
+  epoch: 2
   lr: 2.0e-4
   log_steps: 100
   eval_steps: 10000

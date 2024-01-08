@@ -115,7 +115,7 @@ class Trainer:
                     eval_loss = 0
                     data_nums = []
                 # save step
-                if self.step > 0 and self.step % self.save_step == 0:
+                if self.step > 0 and self.step % self.save_steps == 0:
                     self.accelerator.wait_for_everyone()
                     unwrapped_model = self.accelerator.unwrap_model(self.model)
                     save_path = self.config["experiments"]["weights"] + "/{}".format(self.step)
