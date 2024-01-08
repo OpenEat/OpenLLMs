@@ -19,7 +19,7 @@ class Informer:
         """ setup """
         # tokenzier
         self.tokenizer = self.set_tokenzier()
-        self.dataset = self.set_dataset(world_size=self.accelerator.num_processes)
+        self.dataset = self.set_dataset()
         self.dataloader = self.set_dataloader()
 
     def set_tokenzier(self):

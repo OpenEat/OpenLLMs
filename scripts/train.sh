@@ -1,6 +1,6 @@
 # basic setting
 basic_dir=`pwd`
-accelerate=/root/autodl-tmp/miniconda3/envs/python10/bin/accelerate
+accelerate=/home/share/caoxu/miniconda3/envs/python310/bin/accelerate
 accelerate_config=${basic_dir}/../conf/accelerate.yaml
 # diy config
 task=pt
