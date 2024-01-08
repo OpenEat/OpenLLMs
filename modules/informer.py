@@ -1,5 +1,3 @@
-import math
-import torch
 import random
 from glob import glob
 from datasets import load_dataset
@@ -25,24 +23,31 @@ class Informer:
         self.dataloader = self.set_dataloader()
 
     def set_tokenzier(self):
-        """ """
+        """ set_tokenzier """
         tokenizer = AutoTokenizer.from_pretrained(self.config["tokenzier"]["path"],
                                                   pad_token=self.config["tokenzier"]["special_tokens"]["pad_token"],
                                                   eos_token=self.config["tokenzier"]["special_tokens"]["eos_token"],
                                                   trust_remote_code=True)
         return tokenizer
 
-    def set_dataset(self, world_size=None):
+    def set_dataset(self):
         """ get_datasets """
         # read data files
         data_files = []
-        for name, pattern in self.config["data"].items():
-            data_files.extend(glob(pattern))
+        for name, data_infos in self.config["data"].items():
+            pattern = data_infos["pattern"]
+            sub_data_files = glob(pattern)
+            random.shuffle(sub_data_files)
+            use_num = int(len(sub_data_files) * data_infos["ratio"])
+            if use_num != 0:
+                data_files.extend(sub_data_files[: use_num])
         random.shuffle(data_files)
-        if world_size is not None:
-            num_shards = len(data_files)
-            data_files = data_files[: num_shards // world_size * world_size]
-        dataset = load_dataset("json", data_files=data_files, split="train", streaming=True)
+        dataset = load_dataset("json", 
+                               split="train", 
+                               data_files=data_files,
+                               download_mode="force_redownload")
+        self.num_rows = dataset.num_rows
+        dataset = dataset.to_iterable_dataset(num_shards=self.config["num_shards"])
         dataset = dataset.shuffle(seed=42)
         # process by different mode
         dataset = self.convert(dataset)
@@ -66,13 +71,13 @@ class Informer:
     
     def padding(self, dataset):
         """ padding """
-        dataset = dataset.map(lambda x: self.tokenizer(x["text"],
-                                                       return_tensors="pt",
-                                                       return_attention_mask=False,
-                                                       padding="max_length",
-                                                       max_length=self.config["max_seq_length"],
-                                                       truncation=True))
-        dataset = dataset.map(lambda x: {"input_ids": x["input_ids"][0]})
+        dataset = dataset.map(lambda x: {"tokenize": self.tokenizer(x["text"],
+                                                     return_tensors="pt",
+                                                     return_attention_mask=False,
+                                                     padding="max_length",
+                                                     max_length=self.config["max_seq_length"],
+                                                     truncation=True)})
+        dataset = dataset.map(lambda x: {"input_ids": x["tokenize"]["input_ids"][0]})
         dataset = dataset.select_columns("input_ids")
         return dataset
     

@@ -1,5 +1,3 @@
-import os
-import sys
 from peft import LoraConfig, TaskType, get_peft_model
 from transformers import AutoConfig, AutoModelForCausalLM
 

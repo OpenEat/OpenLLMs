@@ -4,7 +4,7 @@ accelerate=/root/autodl-tmp/miniconda3/envs/python10/bin/accelerate
 accelerate_config=${basic_dir}/../conf/accelerate.yaml
 # diy config
 task=pt
-pipeline_name=pt_fullparam
+pipeline_name=continue
 pipeline_config=${basic_dir}/../conf/${task}/${pipeline_name}.yaml
 # run script
 cd ../src

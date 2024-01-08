@@ -1,11 +1,17 @@
 import os
+import sys
+import shutil
+
+sys.path.append("../")
+from utils.reader import read_yaml
 
 
 class Parameter:
     """ Parameter """
     def __init__(self, config):
         """ __init__ """
-        self.config = config
+        self.config_file = config
+        self.config = read_yaml(config)
         self.format()
     
     def format(self):
@@ -23,7 +29,9 @@ class Parameter:
             os.mkdir(self.config["trainer"]["experiments"]["weights"])
         if not os.path.exists(self.config["trainer"]["experiments"]["conf"]):
             os.mkdir(self.config["trainer"]["experiments"]["conf"])
-    
+        # copy conf
+        shutil.copy(self.config_file, self.config["trainer"]["experiments"]["conf"])
+        
     def get_config(self):
         """ get_config """
         return self.config

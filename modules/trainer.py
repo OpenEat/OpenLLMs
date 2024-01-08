@@ -9,17 +9,14 @@ from transformers import get_cosine_schedule_with_warmup
 
 class Trainer:
     """ Trainer """
-    def __init__(self, config, informer, modeller, analyser, accelerator):
+    def __init__(self, config, informer, modeller, accelerator):
         """ __init__ """
         self.config = config
         self.informer = informer
         self.modeller = modeller
-        self.analyser = analyser
         self.accelerator = accelerator
-        self.lr_scheduler_factor = accelerator.num_processes / accelerator.gradient_accumulation_steps
-        self.log_steps = self.config["log_steps"] / accelerator.gradient_accumulation_steps
-        self.eval_steps = self.config["eval_steps"] / accelerator.gradient_accumulation_steps
-        self.save_steps = self.config["save_steps"] / accelerator.gradient_accumulation_steps
+        self.log_steps = self.config["log_steps"]
+        self.save_steps = self.config["save_steps"]
     
     def setup(self):
         """ setup """
@@ -39,9 +36,12 @@ class Trainer:
 
     def set_lr_scheduler(self):
         """ set_lr_scheduler """
+        training_steps = self.config["epoch"] * self.informer.num_rows // \
+                        (self.informer.config["batch_size"] * self.accelerator.num_processes)
         scheduler = get_cosine_schedule_with_warmup(self.optimizer,
-                                                    num_warmup_steps=self.config["warmup_steps"] * self.lr_scheduler_factor,
-                                                    num_training_steps=self.config["warmup_steps"] * self.lr_scheduler_factor)
+                                                    num_warmup_steps=self.config["warmup_steps"],
+                                                    num_training_steps=training_steps // \
+                                                        self.accelerator.gradient_accumulation_steps)
         return scheduler
 
     def prepare(self):
@@ -84,32 +84,46 @@ class Trainer:
         self.optimizer.step()
         self.scheduler.step()
         self.optimizer.zero_grad()
-        losses = {"total_loss": loss}
-        return losses
+        return loss
     
     def pretrain(self):
         """ train """
-        self.epoch = 0
-        self.step = 0
         self.model.train()
+        self.epoch = 1
+        self.step = 1
+        self.data_num = 0
         self.start_time = time.time()
-        while True:
+        eval_loss = 0.0
+        data_nums = []
+        while self.epoch <= self.config["epoch"]:
             dataloader = self.dataloader_skiped if self.epoch == 0 else self.dataloader
             for batch in dataloader:
                 batch = self.batch2tensor(batch)
+                data_nums.append(batch["input_ids"].shape[0])
                 # train step
                 with self.accelerator.accumulate(self.model):
-                    losses = self.train_one_step(batch)
+                    loss = self.train_one_step(batch)
+                    eval_loss += loss
                     if self.accelerator.sync_gradients: self.global_step += 1
                 # log step
-                if self.step > 0 and self.step % self.log_steps == 0 \
-                   and self.accelerator.is_main_process:
-                    self.log(losses)
-                # eval step
-                    #TODO 
+                if self.step > 0 and self.step % self.log_steps == 0:
+                    data_nums = torch.tensor(data_nums).to(self.accelerator.device)
+                    self.data_num += sum(self.accelerator.gather(data_nums)).item()
+                    if self.accelerator.is_main_process:
+                        eval_loss /= (self.log_steps)
+                        self.log(eval_loss)
+                    eval_loss = 0
+                    data_nums = []
                 # save step
                 if self.step > 0 and self.step % self.save_step == 0:
-                    self.accelerator.save_state(self.work_dir)
+                    self.accelerator.wait_for_everyone()
+                    unwrapped_model = self.accelerator.unwrap_model(self.model)
+                    save_path = self.config["experiments"]["weights"] + "/{}".format(self.step)
+                    os.makedirs(save_path, exist_ok=True)
+                    unwrapped_model.save_pretrained(save_path, 
+                                                    is_main_process=self.accelerator.is_main_process,
+                                                    save_function=self.accelerator.save,
+                                                    state_dict=self.accelerator.get_state_dict(self.model))
                 self.step += 1
             self.epoch += 1
     
@@ -125,14 +139,15 @@ class Trainer:
         tokens = self.informer.config["batch_size"] \
                  * self.log_steps \
                  * self.informer.config["max_seq_length"]
-        # wandb.log({"Training/Token per second per gpu": tokens / cost_time})
         current_lr = self.optimizer.param_groups[0]["lr"]
-        # wandb.log({"Training/LR": current_lr})
+        ratio = '%.2f%%' % (100 * self.data_num / self.informer.num_rows)
         self.accelerator.print(
-            "Epoch: {}, Global Step: {}, Data Step: {}, Loss: {}, LR: {}, Token per second per gpu: {}".format(
+            "Epoch: {}, Global Step: {}, Data Step: {}, Data Process: {} Ratio: {}, Loss: {}, LR: {}, Token per second per gpu: {}".format(
                 self.epoch,
                 self.global_step,
                 self.step,
-                losses["total_loss"],
+                str(self.data_num) + "/" + str(self.informer.num_rows),
+                ratio,
+                losses,
                 current_lr,
                 tokens / cost_time))            

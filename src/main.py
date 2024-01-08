@@ -8,8 +8,7 @@ from modules.controller import Controller
 
 def main(args):
     """ main """
-    config = read_yaml(args.pipeline_config)
-    controller = Controller(config)
+    controller = Controller(args.pipeline_config)
     controller.register()
     controller.dispatch()
 
