@@ -156,11 +156,7 @@ class Trainer:
                 tokens / cost_time))            
 
 def _z3_params_to_fetch(param_list):
-    return [
-        p
-        for p in param_list
-        if hasattr(p, "ds_id") and p.ds_status == ZeroParamStatus.NOT_AVAILABLE
-    ]
+    return [p for p in param_list if hasattr(p, "ds_id") and p.ds_status == ZeroParamStatus.NOT_AVAILABLE]
 
 def save_weights(model, save_path, zero_stage_3=True):
     """ save_weights """

@@ -1,17 +1,22 @@
+import sys
 import random
 from glob import glob
 from datasets import load_dataset
 from transformers import AutoTokenizer
 from torch.utils.data import DataLoader
 from datasets.distributed import split_dataset_by_node
+from transformers.trainer_pt_utils import LabelSmoother
+
+sys.path.append("../")
+from utils.data import *
 
 random.seed(42)
 
 
-class Informer:
+class BasicInformer:
     """ Informer """
     def __init__(self, config, accelerator):
-        """ ___init__ """
+        """ __init__ """
         self.config = config
         self.accelerator = accelerator
     
@@ -20,8 +25,9 @@ class Informer:
         # tokenzier
         self.tokenizer = self.set_tokenzier()
         self.dataset = self.set_dataset()
+        self.dataset = self.process_dataset()
         self.dataloader = self.set_dataloader()
-
+    
     def set_tokenzier(self):
         """ set_tokenzier """
         tokenizer = AutoTokenizer.from_pretrained(self.config["tokenzier"]["path"],
@@ -31,7 +37,7 @@ class Informer:
         return tokenizer
 
     def set_dataset(self):
-        """ get_datasets """
+        """ set_dataset """
         # read data files
         data_files = []
         for name, data_infos in self.config["data"].items():
@@ -49,46 +55,6 @@ class Informer:
         self.num_rows = dataset.num_rows
         dataset = dataset.to_iterable_dataset(num_shards=self.config["num_shards"])
         dataset = dataset.shuffle(seed=42)
-        # process by different mode
-        dataset = self.convert(dataset)
-        # padding to max length
-        dataset = self.padding(dataset)
-        # cal pad length
-        dataset = self.padlengthing(dataset)
-        # add labels
-        dataset = self.labeling(dataset)
-        dataset = dataset.shuffle(seed=42)
-        # split dataset to different node
-        dataset = split_dataset_by_node(dataset, 
-                                        rank=self.accelerator.process_index,
-                                        world_size=self.accelerator.num_processes)
-        return dataset
-    
-    def convert(self, dataset):
-        """ convert """
-        dataset = eval("dataset.map(" + self.config["mode"] + ", batched=True, batch_size=1)")
-        return dataset
-    
-    def padding(self, dataset):
-        """ padding """
-        dataset = dataset.map(lambda x: {"tokenize": self.tokenizer(x["text"],
-                                                     return_tensors="pt",
-                                                     return_attention_mask=False,
-                                                     padding="max_length",
-                                                     max_length=self.config["max_seq_length"],
-                                                     truncation=True)})
-        dataset = dataset.map(lambda x: {"input_ids": x["tokenize"]["input_ids"][0]})
-        dataset = dataset.select_columns("input_ids")
-        return dataset
-    
-    def labeling(self, dataset):
-        """ labeling """
-        dataset = dataset.map(get_labels_gen(self.tokenizer.pad_token_id))
-        return dataset
-    
-    def padlengthing(self, dataset):
-        """ padlengthing """
-        dataset = dataset.map(get_pad_len(self.tokenizer.pad_token_id))
         return dataset
 
     def set_dataloader(self):
@@ -99,33 +65,108 @@ class Informer:
                                 prefetch_factor=self.config["prefetch_factor"],
                                 pin_memory=True)
         return dataloader
+
+    def process_dataset(self):
+        """ process_dataset """
+        return self.dataset
+
+            
+class PretrainInformer(BasicInformer):
+    """ PretrainInformer """
+    def __init__(self, config, accelerator):
+        super().__init__(config, accelerator)
     
-    def get_dataloader(self):
-        """ get_dataloader """
-        return self.dataloader
+    def process_dataset(self):
+        """ process_dataset """
+        # covert sft to pretrain
+        self.convert()
+        # padding to max length
+        self.padding()
+        # cal pad length
+        self.padlengthing()
+        # add labels
+        self.labeling()
 
-def get_labels_gen(pad_token_id):
-    def get_labels(line):
-        input_ids = line["input_ids"]
-        labels = input_ids.clone()
-        labels[labels == pad_token_id] = -100
-        return {"labels": labels}
-    return get_labels
+    def convert(self):
+        """ convert """
+        self.dataset = self.dataset.map(sft2pretrain)
 
-def get_pad_len(pad_token_id):
-    """ get_seq_len """
-    def pad_length(line):
-        input_ids = line["input_ids"]
-        padded_len = len(input_ids)
-        pad_len = 0
-        for id in input_ids:
-            if id == pad_token_id:
-                pad_len += 1
+    def padding(self):
+        """ padding """
+        self.dataset = self.dataset.map(lambda x: {"tokenize": self.tokenizer(x["text"],
+                                                               return_tensors="pt",
+                                                               return_attention_mask=False,
+                                                               padding="max_length",
+                                                               max_length=self.config["max_seq_length"],
+                                                               truncation=True)})
+        self.dataset = self.dataset.map(lambda x: {"input_ids": x["tokenize"]["input_ids"][0]})
+        self.dataset = self.dataset.select_columns("input_ids")
+    
+    def labeling(self):
+        """ labeling """
+        self.dataset = self.dataset.map(get_labels_gen(self.tokenizer.pad_token_id))
+    
+    def padlengthing(self):
+        """ padlengthing """
+        self.dataset = self.dataset.map(get_pad_len(self.tokenizer.pad_token_id))
+
+
+class SFTInformer(BasicInformer):
+    """ SFTInformer """
+    def __init__(self, config, accelerator):
+        super().__init__(config, accelerator)
+
+    def process_dataset(self):
+        """ process_dataset """
+        # covert sft to chat pair
+        self.covert()
+        # padding to max length
+        self.padding()
+        # cal pad length
+        self.padlengthing()
+        # add labels
+        self.labeling()
+    
+    def covert(self):
+        """ covert """
+        self.dataset = self.dataset.map(sft2pair)
+    
+    def padding(self):
+        """ padding """
+        def preprocess(data):
+            """ preprocess """
+            chats = data["texts"]
+            inputs_ids = []
+            targets_mask = []
+            for chat in chats:
+                prompt = 'user\n' + chat["user"]
+                completion = "assistant\n" + chat["assistant"]
+                prompt = self.tokenizer.im_start + self.tokenizer(prompt).input_ids + self.tokenizer.im_end + self.tokenizer("\n").input_ids
+                completion = self.tokenizer.im_start + self.tokenizer(completion).input_ids + self.tokenizer.im_end + self.tokenizer("\n").input_ids
+                inputs_ids += prompt + completion
+                targets_mask += [0] * len(prompt) + [1] * len(completion)
+            if len(inputs_ids) > self.config["max_seq_length"]:
+                inputs_ids = inputs_ids[:self.config["max_seq_length"]]
+                targets_mask = targets_mask[:self.config["max_seq_length"]]
             else:
-                break
-        return {"pad_len": pad_len}
-    return pad_length
+                inputs_ids = [self.tokenizer.pad_token_id] * (self.config["max_seq_length"] - len(inputs_ids)) + inputs_ids
+                targets_mask = [self.tokenizer.pad_token_id] * (self.config["max_seq_length"] - len(targets_mask)) + targets_mask
+            data["inputs_ids"] = inputs_ids
+            data["targets_mask"] = targets_mask
+            return data
+        self.dataset = self.dataset.map(preprocess)
+    
+    def padlengthing(self):
+        """ padlengthing """
+        self.dataset = self.dataset.map(get_pad_len(self.tokenizer.pad_token_id))
 
-def pretrain(text):
-    """ pretrain """
-    return text
+    def labeling(self):
+        """ labeling """
+        self.dataset = self.dataset.map(get_labels_gen(self.tokenizer.pad_token_id))
+
+class Informer:
+    """ Informer """
+    global INFORMERS
+    INFORMERS = {"pretrain": PretrainInformer, "sft": SFTInformer}
+    def __init__(self, config, accelerator):
+        return INFORMERS[config["mode"]](config, accelerator)
