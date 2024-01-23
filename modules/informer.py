@@ -26,7 +26,6 @@ class BasicInformer:
         self.tokenizer = self.set_tokenzier()
         self.dataset = self.set_dataset()
         self.dataset = self.process_dataset()
-        self.dataloader = self.set_dataloader()
     
     def set_tokenzier(self):
         """ set_tokenzier """
@@ -57,7 +56,7 @@ class BasicInformer:
         dataset = dataset.shuffle(seed=42)
         return dataset
 
-    def set_dataloader(self):
+    def get_dataloader(self):
         """ get_generater """
         dataloader = DataLoader(self.dataset, 
                                 batch_size=self.config["batch_size"],
@@ -135,24 +134,24 @@ class SFTInformer(BasicInformer):
         """ padding """
         def preprocess(data):
             """ preprocess """
-            chats = data["texts"]
-            inputs_ids = []
+            chats = data["text"]
+            input_ids = []
             targets_mask = []
             for chat in chats:
                 prompt = 'user\n' + chat["user"]
                 completion = "assistant\n" + chat["assistant"]
-                prompt = self.tokenizer.im_start + self.tokenizer(prompt).input_ids + self.tokenizer.im_end + self.tokenizer("\n").input_ids
-                completion = self.tokenizer.im_start + self.tokenizer(completion).input_ids + self.tokenizer.im_end + self.tokenizer("\n").input_ids
-                inputs_ids += prompt + completion
+                prompt = self.tokenizer.im_start_id + self.tokenizer(prompt).input_ids + self.tokenizer.im_end_id + self.tokenizer("\n").input_ids
+                completion = self.tokenizer.im_start_id + self.tokenizer(completion).input_ids + self.tokenizer.im_end_id + self.tokenizer("\n").input_ids
+                input_ids += prompt + completion
                 targets_mask += [0] * len(prompt) + [1] * len(completion)
-            if len(inputs_ids) > self.config["max_seq_length"]:
-                inputs_ids = inputs_ids[:self.config["max_seq_length"]]
+            if len(input_ids) > self.config["max_seq_length"]:
+                input_ids = input_ids[:self.config["max_seq_length"]]
                 targets_mask = targets_mask[:self.config["max_seq_length"]]
             else:
-                inputs_ids = [self.tokenizer.pad_token_id] * (self.config["max_seq_length"] - len(inputs_ids)) + inputs_ids
+                input_ids = [self.tokenizer.pad_token_id] * (self.config["max_seq_length"] - len(input_ids)) + input_ids
                 targets_mask = [self.tokenizer.pad_token_id] * (self.config["max_seq_length"] - len(targets_mask)) + targets_mask
-            data["inputs_ids"] = inputs_ids
-            data["targets_mask"] = targets_mask
+            data["input_ids"] = torch.tensor(input_ids, dtype=torch.int64)
+            data["targets_mask"] = torch.tensor(targets_mask, dtype=torch.int64)
             return data
         self.dataset = self.dataset.map(preprocess)
     
@@ -168,5 +167,5 @@ class Informer:
     """ Informer """
     global INFORMERS
     INFORMERS = {"pretrain": PretrainInformer, "sft": SFTInformer}
-    def __init__(self, config, accelerator):
+    def __new__(self, config, accelerator):
         return INFORMERS[config["mode"]](config, accelerator)

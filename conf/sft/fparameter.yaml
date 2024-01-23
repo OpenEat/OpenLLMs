@@ -1,0 +1,39 @@
+accelerator:
+  gradient_accumulation_steps: 4
+informer:
+  mode: sft
+  data:
+    sft: 
+      pattern: "/home/share/caoxu/projects/Open-Llama/data/sft/part-*.jsonl.zst"
+      ratio: 1.0
+  tokenzier:
+    path: "/home/data/LLMTrainer_bk/scripts/Qwen-7B"
+    special_tokens:
+      pad_token: "<|extra_0|>"
+      eos_token: "<|endoftext|>"
+  max_seq_length: 4096
+  batch_size: 8
+  num_shards: 8
+  num_workers: 4
+  prefetch_factor: 20
+modeller:
+  mode: fparameter
+  args:
+    ckpt: "/home/data/LLMTrainer_bk/scripts/Qwen-7B"
+    conf: "/home/data/LLMTrainer_bk/scripts/Qwen-7B"
+  gradient_checkpointing_enable: True
+  weight_decay: 1.0e-1
+trainer:
+  mode: sft
+  epoch: 2
+  lr: 3.0e-6
+  log_steps: 10
+  save_steps: 10
+  warmup_steps: 1000
+  experiments:
+    exp_dir: "../experiments"
+    name: "exp_20240108"
+    weights: "weights"
+    conf: "conf"
+    load_model: False
+    load_step: 1000
