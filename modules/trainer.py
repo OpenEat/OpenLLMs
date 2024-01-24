@@ -122,18 +122,46 @@ class Trainer:
                     self.accelerator.wait_for_everyone()
                     unwrapped_model = self.accelerator.unwrap_model(self.model)
                     save_path = self.config["experiments"]["weights"] + "/{}".format(self.step)
-                    save_weights(unwrapped_model, save_path, )
-                    unwrapped_model.save_pretrained(save_path, 
-                                                    is_main_process=self.accelerator.is_main_process,
-                                                    save_function=self.accelerator.save,
-                                                    state_dict=self.accelerator.get_state_dict(self.model))
+                    save_weights(unwrapped_model, save_path)
                 self.step += 1
             self.epoch += 1
     
     def sft(self):
         """ sft """
-        # TODO
-        pass
+        self.model.train()
+        self.epoch = 1
+        self.step = 1
+        self.data_num = 0
+        self.start_time = time.time()
+        eval_loss = 0.0
+        data_nums = []
+        while self.epoch <= self.config["epoch"]:
+            dataloader = self.dataloader_skiped if self.epoch == 0 else self.dataloader
+            for batch in dataloader:
+                batch = self.batch2tensor(batch)
+                data_nums.append(batch["input_ids"].shape[0])
+                # train step
+                with self.accelerator.accumulate(self.model):
+                    loss = self.train_one_step(batch)
+                    eval_loss += loss
+                    if self.accelerator.sync_gradients: self.global_step += 1
+                # log step
+                if self.step > 0 and self.step % self.log_steps == 0:
+                    data_nums = torch.tensor(data_nums).to(self.accelerator.device)
+                    self.data_num += sum(self.accelerator.gather(data_nums)).item()
+                    if self.accelerator.is_main_process:
+                        eval_loss /= (self.log_steps)
+                        self.log(eval_loss)
+                    eval_loss = 0
+                    data_nums = []
+                # save step
+                if self.step > 0 and self.step % self.save_steps == 0:
+                    self.accelerator.wait_for_everyone()
+                    unwrapped_model = self.accelerator.unwrap_model(self.model)
+                    save_path = self.config["experiments"]["weights"] + "/{}".format(self.step)
+                    save_weights(unwrapped_model, save_path)
+                self.step += 1
+            self.epoch += 1
 
     def log(self, losses):
         """ log """
